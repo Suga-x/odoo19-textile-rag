@@ -1,0 +1,38 @@
+# === Docker & Local Data Directories ===
+# Abaikan folder data database lokal agar tidak mengotori repositori dan bocor
+chroma_db/
+chroma/
+.chroma/
+odoo19_data/
+postgresql_data_19/
+
+# === Environment & Secrets ===
+# Abaikan file environment yang berisi API Key rahasia (Gemini API Key, dll)
+.env
+.env.*
+secrets.json
+
+# === IDE & OS Files ===
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+.DS_Store
+Thumbs.db
+
+# === Python Cache ===
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+htmlcov/

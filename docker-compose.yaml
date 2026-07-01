@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  web-odoo19-ce:
+    image: odoo:19.0
+    container_name: odoo19_ce
+    depends_on:
+      - db
+      - ai-engine # 🔥 Odoo baru boleh jalan setelah database dan AI engine siap
+    ports:
+      - "8019:8069"
+    volumes:
+      - ./odoo19_data:/var/lib/odoo
+      - ./config:/etc/odoo
+      - ./addons:/mnt/extra-addons
+      - /tmp/odoo19_sessions:/tmp/odoo_sessions
+    environment:
+      - HOST=db
+      - USER=odoo
+      - PASSWORD=odoo
+    command: odoo -u mrp_ai_expert,textile_rag -d odoo19_ce
+    networks:
+      - textile-network # 🔥 Sambungkan Odoo ke jaringan internal
+
+  db:
+    image: postgres:16
+    container_name: postgres19
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=odoo
+      - POSTGRES_PASSWORD=odoo
+    ports:
+      - "5419:5432"
+    volumes:
+      - ./postgresql_data_19:/var/lib/postgresql/data
+    networks:
+      - textile-network # 🔥 Sambungkan DB ke jaringan internal
+
+  # ====================================================================
+  # 🔥 SERVICE BARU: FASTAPI TEXTILE RAG AI ENGINE
+  # ====================================================================
+  ai-engine:
+    build:
+      context: ./fastapi_project # ⚠️ SESUAIKAN: ganti dengan nama folder proyek FastAPI Anda
+      dockerfile: Dockerfile
+    container_name: textile_ai_engine
+    ports:
+      - "8000:8000" # Tetap buka port 8000 agar Anda bisa akses Swagger UI dari browser laptop
+    volumes:
+      - ./fastapi_project:/app # Menyinkronkan kode lokal agar auto-reload tetap jalan saat development
+      - ./chroma_db:/app/chroma_db # Persistent volume agar data koordinat ChromaDB Anda tidak hilang saat container restart
+    environment:
+      - CHROMA_DATA_PATH=/app/chroma_db
+      - GEMINI_API_KEY=AIzaSyYourRealGeminiKeyHere # Masukkan API Key cloud Anda jika diperlukan
+      - AI_PROVIDER=gemini 
+    networks:
+      - textile-network 
+
+networks:
+  textile-network:
+    driver: bridge
+
+volumes:
+  odoo19-web-data:
+  odoo19-db-data:
+  odoo19-chroma-data:
