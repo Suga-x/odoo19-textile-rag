@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="mrp_production_form_view_inherit_ai" model="ir.ui.view">
+        <field name="name">mrp.production.form.view.inherit.ai</field>
+        <field name="model">mrp.production</field>
+        <field name="inherit_id" ref="mrp.mrp_production_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string=" Tanya Pakar AI" name="ai_expert_assistant">
+                    <group string="Konsultasi SOP Produksi Makloon Celup">
+                        <field name="ai_question" placeholder="Contoh: Berapa suhu aman dan pH untuk celup kain polyester muda?"/>
+                    </group>
+
+                    <div class="o_row" style="margin-bottom: 20px;">
+                        <button name="action_ask_ai_expert"
+                                string=" Hubungkan ke Pakar AI"
+                                type="object"
+                                class="oe_highlight"
+                                icon="fa-commenting-o"/>
+                    </div>
+
+                    <group string="Hasil Analisis Sistem RAG" invisible="not ai_answer">
+                        <field name="ai_answer" widget="html" options="{'style-inline': True}"/>
+                        <field name="ai_vector_distance" groups="base.group_no_one" string="Tingkat Akurasi (Jarak Vektor)"/>
+                    </group>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_textile_chat_dashboard" model="ir.actions.client">
+        <field name="name">Asisten AI SOP</field>
+        <field name="tag">textile_chat_dashboard_action</field>
+    </record>
+    <menuitem id="menu_textile_ai_root" name="Textile AI Engine" sequence="10" web_icon="fa fa-android,#007A5A,#FFFFFF"/>
+    
+    <menuitem id="menu_textile_chat_dashboard" name="Tanya AI SOP" parent="menu_textile_ai_root" action="action_textile_chat_dashboard" sequence="10"/>
+</odoo>

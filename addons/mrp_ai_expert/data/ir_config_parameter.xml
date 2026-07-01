@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="fastapi_url_parameter" model="ir.config_parameter">
+            <field name="key">textile_rag.fastapi_url</field>
+            <field name="value">http://172.21.192.1:8000</field>
+        </record>
+    </data>
+</odoo>

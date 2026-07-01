@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="textile_rag.ChatDashboard" owl="1">
+        <div class="o_textile_chat_container d-flex flex-column bg-100 h-100">
+            <div class="p-3 bg-view border-bottom d-flex justify-content-between align-items-center">
+                <h3 class="m-0 text-primary"><i class="fa fa-android me-2"/>Asisten AI SOP Tekstil</h3>
+                <span class="badge rounded-pill bg-success-light text-success border border-success">RAG Engine Active</span>
+            </div>
+
+            <div class="o_chat_history flex-grow-1 p-3 overflow-auto d-flex flex-column gap-3 bg-white" t-ref="chatHistory">
+                <t t-foreach="state.messages" t-as="msg" t-key="msg.id">
+                    <div t-attf-class="d-flex flex-column max-w-75 p-3 rounded shadow-sm #{msg.isUser ? 'align-self-end bg-primary text-white' : 'align-self-start bg-light text-dark border'}">
+                        <div class="fw-bold small mb-1" t-out="msg.sender"/>
+                        <div class="o_chat_body text-wrap w-100 clearfix" t-out="msg.text"/>
+                        <div class="text-end small opacity-75 mt-1" style="font-size: 0.75rem;" t-out="msg.time"/>
+                    </div>
+                </t>
+                <t t-if="state.isLoading">
+                    <div class="align-self-start bg-light p-3 rounded border shadow-sm d-flex align-items-center gap-2">
+                        <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                        <span class="text-muted small">Asisten sedang membaca SOP...</span>
+                    </div>
+                </t>
+            </div>
+
+            <div class="p-3 bg-view border-top">
+                <div class="input-group input-group-lg shadow-sm">
+                    <input type="text" class="form-control bg-white" 
+                           placeholder="Tanyakan instruksi kerja atau penanganan masalah kain..." 
+                           t-model="state.inputQuestion"
+                           t-on-keydown="_onKeyDown"/>
+                    <button class="btn btn-primary px-4" type="button" t-on-click="sendMessage" t-att-disabled="state.isLoading">
+                        <i class="fa fa-paper-plane"/>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </t>
+</templates>
