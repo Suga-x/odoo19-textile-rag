@@ -1,6 +1,7 @@
 import os
 from litellm import completion
 from dotenv import load_dotenv
+import ollama
 
 load_dotenv()
 
@@ -8,131 +9,150 @@ class LLMService:
     @staticmethod
     def generate_rag_answer_history(question: str, retrieved_sop: str, history: list[dict[str, str]]) -> str:
         ai_provider = os.getenv("AI_PROVIDER", "ollama").lower()
-        
-        # 1. Susun instruksi kaku seperti biasa
+
+        # Build strict system instruction
         system_instruction = (
-            "Anda adalah Pakar Manajemen Sistem Mutu di pabrik tekstil makloon celup.\n"
-            "Tugas Anda adalah menjawab pertanyaan operator secara taktis, ringkas, dan mudah dipahami.\n\n"
-            
-            "ATURAN FORMAT OUTPUT (MUTLAK & KETAT):\n"
-            "1. WAJIB menggunakan format HTML murni untuk semua dekorasi teks.\n"
-            "2. Gunakan tag <b>...</b> untuk menebalkan judul, poin penting, parameter suhu, angka persen, atau kode dokumen.\n"
-            "3. Gunakan tag <ul> dan <li> jika jawaban berupa urutan langkah atau daftar solusi.\n"
-            "4. Gunakan tag <br/><br/> untuk memberikan jeda baris antar paragraf.\n"
-            "5. DILARANG KERAS MENGGUNAKAN MARKDOWN SEPERTI ASTERIS (**Penjelasan:** atau **Teks Bold**). Ganti semua format tebal markdown menjadi tag <b>.\n"
-            "6. DILARANG KERAS membungkus jawaban dengan markdown code blocks seperti ```html ... ```.\n"
-            "7. Jika di dalam dokumen referensi terdapat nomor SOP atau instruksi spesifik, sebutkan secara jelas.\n\n"
-            
-            "DOKUMEN REFERENSI SOP:\n"
+            "You are a Quality Management System Expert at a textile dyeing factory.\n"
+            "Your task is to answer operator questions tactically, concisely, and in an easy-to-understand manner.\n\n"
+
+            "OUTPUT FORMAT RULES (ABSOLUTE & STRICT):\n"
+            "1. MUST use pure HTML format for all text decoration.\n"
+            "2. Use <b>...</b> tags to bold titles, important points, temperature parameters, percentage values, or document codes.\n"
+            "3. Use <ul> and <li> tags if the answer is a sequence of steps or a list of solutions.\n"
+            "4. Use <br/><br/> tags to provide line breaks between paragraphs.\n"
+            "5. STRICTLY FORBIDDEN to use Markdown like asterisks (**Explanation:** or **Bold Text**). Replace all bold markdown formatting with <b> tags.\n"
+            "6. STRICTLY FORBIDDEN to wrap the answer in markdown code blocks like ```html ... ```.\n"
+            "7. If the reference document contains an SOP number or specific instruction, mention it clearly.\n\n"
+
+            "SOP REFERENCE DOCUMENT:\n"
             f"{retrieved_sop}"
         )
         messages_payload = [
             {'role': 'system', 'content': system_instruction}
         ]
-        
+
         for msg in history[-4:]:
             role = "user" if msg["role"] == "Operator" else "assistant"
             messages_payload.append({'role': role, 'content': msg["content"]})
-            
-        messages_payload.append({'role': 'user', 'content': f"Pertanyaan Operator: {question}"})
+
+        messages_payload.append({'role': 'user', 'content': f"Operator Question: {question}"})
         try:
             if ai_provider == "gemini":
-                print(" 🌐 [LLM ROUTER] Mencoba menghubungi Google Gemini API dengan konteks riwayat...")
+                print(" [LLM ROUTER] Attempting to contact Google Gemini API with history context...")
                 response = completion(
                     model="gemini/gemini-1.5-pro",
-                    messages=messages_payload, # Menggunakan payload dinamis
+                    messages=messages_payload,
                     temperature=0.2,
-                    timeout=15 
+                    timeout=15
                 )
                 return response.choices[0].message.content
-            
+
         except Exception as e:
-            print(f" [LLM FALLBACK] Gemini bermasalah: {str(e)}. Mengalihkan proses ke Ollama lokal...")
-            
-        # Pintu Darurat: Eksekusi Ollama Lokal (Qwen)
+            print(f" [LLM FALLBACK] Gemini failed: {str(e)}. Redirecting to local Ollama...")
+
+        # Fallback: Execute Local Ollama (Qwen) via native ollama library
         try:
-            print("[LLM ROUTER] Menjalankan Ollama Lokal (qwen2.5-coder:14b) dengan konteks riwayat...")
-            response = completion(
-                model="ollama/qwen2.5-coder:14b",
-                messages=messages_payload, 
-                temperature=0.2
-            )
-            return response.choices[0].message.content
-            
+            print("[LLM ROUTER] Running local Ollama (qwen2.5-coder:14b) with history context via ollama library...")
+            # Build a simple prompt from messages
+            system_content = messages_payload[0]["content"] if messages_payload else ""
+            user_content = messages_payload[-1]["content"] if len(messages_payload) > 1 else question
+            full_prompt = f"{system_content}\n\n{user_content}"
+            response = ollama.generate(model="qwen2.5-coder:14b", prompt=full_prompt)
+            return response["response"]
+
         except Exception as local_err:
-            print(f" [LLM FATAL] Ollama lokal juga gagal: {str(local_err)}")
+            print(f" [LLM FATAL] Local Ollama also failed: {str(local_err)}")
             return (
-                "<b>Sistem AI Mengalami Gangguan:</b> Hubungan ke otak AI (Gemini & Ollama) terputus. "
-                "Namun berdasarkan pencarian database, dokumen SOP terkait ditemukan. Silakan hubungi tim IT pabrik."
+                "<b>AI System Experiencing Disruption:</b> Connection to the AI brain (Gemini & Ollama) is lost. "
+                "However, based on the database search, related SOP documents were found. Please contact the factory IT team."
             )
 
     @staticmethod
     def generate_rag_answer(question: str, retrieved_sop: str) -> str:
         ai_provider = os.getenv("AI_PROVIDER", "ollama").lower()
-        
-        # Susun instruksi kaku seperti biasa
+
+        # Build strict system instruction
         system_instruction = (
-            "Anda adalah Pakar Manajemen Sistem Mutu di pabrik tekstil makloon celup.\n"
-            "Tugas Anda adalah menjawab pertanyaan operator secara taktis, ringkas, dan mudah dipahami.\n\n"
-            
-            "ATURAN FORMAT OUTPUT (MUTLAK & KETAT):\n"
-            "1. WAJIB menggunakan format HTML murni untuk semua dekorasi teks.\n"
-            "2. Gunakan tag <b>...</b> untuk menebalkan judul, poin penting, parameter suhu, angka persen, atau kode dokumen.\n"
-            "3. Gunakan tag <ul> dan <li> jika jawaban berupa urutan langkah atau daftar solusi.\n"
-            "4. Gunakan tag <br/><br/> untuk memberikan jeda baris antar paragraf.\n"
-            "5. DILARANG KERAS MENGGUNAKAN MARKDOWN SEPERTI ASTERIS (**Penjelasan:** atau **Teks Bold**). Ganti semua format tebal markdown menjadi tag <b>.\n"
-            "6. DILARANG KERAS membungkus jawaban dengan markdown code blocks seperti ```html ... ```.\n"
-            "7. Jika di dalam dokumen referensi terdapat nomor SOP atau instruksi spesifik, sebutkan secara jelas.\n\n"
-            
-            "CONTOH OUTPUT YANG BENAR:\n"
-            "<b>Kemungkinan Penyebab:</b> Kain poliester mengalami kerutan.<br/><br/>\n"
-            "<b>Solusi berdasarkan SOP-DYE-005:</b>\n"
+            "You are a Quality Management System Expert at a textile dyeing factory.\n"
+            "Your task is to answer operator questions tactically, concisely, and in an easy-to-understand manner.\n\n"
+
+            "OUTPUT FORMAT RULES (ABSOLUTE & STRICT):\n"
+            "1. MUST use pure HTML format for all text decoration.\n"
+            "2. Use <b>...</b> tags to bold titles, important points, temperature parameters, percentage values, or document codes.\n"
+            "3. Use <ul> and <li> tags if the answer is a sequence of steps or a list of solutions.\n"
+            "4. Use <br/><br/> tags to provide line breaks between paragraphs.\n"
+            "5. STRICTLY FORBIDDEN to use Markdown like asterisks (**Explanation:** or **Bold Text**). Replace all bold markdown formatting with <b> tags.\n"
+            "6. STRICTLY FORBIDDEN to wrap the answer in markdown code blocks like ```html ... ```.\n"
+            "7. If the reference document contains an SOP number or specific instruction, mention it clearly.\n\n"
+
+            "CORRECT OUTPUT EXAMPLE:\n"
+            "<b>Possible Cause:</b> Polyester fabric is wrinkled.<br/><br/>\n"
+            "<b>Solution based on SOP-DYE-005:</b>\n"
             "<ul>\n"
-            "  <li>Turunkan suhu menjadi <b>90°C</b> selama 30 menit.</li>\n"
+            "  <li>Reduce temperature to <b>90°C</b> for 30 minutes.</li>\n"
             "</ul><br/>\n"
-            "<b>Penjelasan:</b> Proses ini bertujuan mendistribusikan molekul warna.\n\n"
-            
-            "DOKUMEN REFERENSI SOP:\n"
+            "<b>Explanation:</b> This process aims to distribute color molecules evenly.\n\n"
+
+            "SOP REFERENCE DOCUMENT:\n"
             f"{retrieved_sop}"
         )
-        
-        # TARUH LOGIKA PERTAHANAN DI SINI (TRY-EXCEPT COUPLING)
+
+        # Defense logic with try-except coupling
         try:
             if ai_provider == "gemini":
-                print(" [LLM ROUTER] Mencoba menghubungi Google Gemini API...")
+                print(" [LLM ROUTER] Attempting to contact Google Gemini API...")
                 response = completion(
                     model="gemini/gemini-1.5-pro",
                     messages=[
                         {'role': 'system', 'content': system_instruction},
-                        {'role': 'user', 'content': f"Pertanyaan Operator: {question}"}
+                        {'role': 'user', 'content': f"Operator Question: {question}"}
                     ],
                     temperature=0.2,
-                    timeout=15 # Batasi waktu tunggu maksimal 15 detik
+                    timeout=15
                 )
                 return response.choices[0].message.content
-            
+
         except Exception as e:
-            # Jika Gemini gagal (Error 503, internet mati, atau kuota habis), JANGAN CRASH!
-            # Langsung alihkan ke Ollama lokal di PC kantor secara otomatis.
-            print(f" [LLM FALLBACK] Gemini bermasalah: {str(e)}. Mengalihkan proses ke Ollama lokal...")
-            
-        # Pintu Darurat: Eksekusi Ollama Lokal (Qwen)
+            print(f" [LLM FALLBACK] Gemini failed: {str(e)}. Redirecting to local Ollama...")
+
+        # Fallback: Execute Local Ollama (Qwen) via native ollama library
         try:
-            print("[LLM ROUTER] Menjalankan Ollama Lokal (qwen2.5-coder:14b)...")
-            response = completion(
-                model="ollama/qwen2.5-coder:14b",
-                messages=[
-                    {'role': 'system', 'content': system_instruction},
-                    {'role': 'user', 'content': f"Pertanyaan Operator: {question}"}
-                ],
-                temperature=0.2
-            )
-            return response.choices[0].message.content
-            
+            print("[LLM ROUTER] Running local Ollama (qwen2.5-coder:14b) via ollama library...")
+            full_prompt = f"{system_instruction}\n\nOperator Question: {question}"
+            response = ollama.generate(model="qwen2.5-coder:14b", prompt=full_prompt)
+            return response["response"]
+
         except Exception as local_err:
-            # Jika Ollama lokal pun mati, kembalikan teks HTML aman buatan sistem
-            print(f" [LLM FATAL] Ollama lokal juga gagal: {str(local_err)}")
+            print(f" [LLM FATAL] Local Ollama also failed: {str(local_err)}")
             return (
-                "<b>Sistem AI Mengalami Gangguan:</b> Hubungan ke otak AI (Gemini & Ollama) terputus. "
-                "Namun berdasarkan pencarian database, dokumen SOP terkait ditemukan. Silakan hubungi tim IT pabrik."
+                "<b>AI System Experiencing Disruption:</b> Connection to the AI brain (Gemini & Ollama) is lost. "
+                "However, based on the database search, related SOP documents were found. Please contact the factory IT team."
             )
+
+    @staticmethod
+    def generate_from_context_list(query: str, context_list: list[dict]) -> str:
+        """
+        Generate an answer from a list of retrieved document contexts.
+
+        Args:
+            query: The original user question.
+            context_list: List of retrieved documents with 'text' and 'metadata' keys.
+
+        Returns:
+            A string containing the LLM-generated answer.
+        """
+        context_parts = []
+        for i, doc in enumerate(context_list):
+            sop_code = doc.get("metadata", {}).get("sop_code", "UNKNOWN")
+            division = doc.get("metadata", {}).get("division", "UNKNOWN")
+            text = doc.get("text", "")
+            context_parts.append(
+                f"[Document {i+1}] SOP Code: {sop_code} | Division: {division}\n{text}"
+            )
+
+        consolidated_context = "\n\n---\n\n".join(context_parts)
+
+        return LLMService.generate_rag_answer(
+            question=query,
+            retrieved_sop=consolidated_context
+        )

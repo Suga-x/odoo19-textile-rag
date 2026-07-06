@@ -6,6 +6,7 @@ WORKDIR /app
 
 # Salin requirements.txt terlebih dahulu untuk memanfaatkan Docker layer caching
 RUN pip install --no-cache-dir \
+    google-generativeai==0.8.3 \
     numpy==1.26.4 \
     fastapi==0.110.0 \
     uvicorn==0.28.0 \
@@ -15,7 +16,9 @@ RUN pip install --no-cache-dir \
     rank-bm25==0.2.2 \
     litellm==1.34.22 \
     python-multipart==0.0.9 \
-    ollama==0.2.1
+    ollama==0.2.1 \
+    celery==5.3.6 \
+    redis==5.0.7
 
 # Salin seluruh kode sumber proyek ke dalam kontainer
 COPY . .

@@ -4,89 +4,88 @@ import chromadb
 import ollama
 from dotenv import load_dotenv
 
-# Path untuk database lokal di Mac
+# Local database path
 DB_PATH = "chroma_storage_local"
 
-# 1. HARD RESET DATABASE (Memastikan Index Fresh untuk Embedding Lokal)
+# 1. HARD RESET DATABASE (Ensures fresh index for local embedding)
 if os.path.exists(DB_PATH):
     shutil.rmtree(DB_PATH)
 
-print("[-] Menginisialisasi ChromaDB Lokal di Mac...")
+print("[-] Initializing Local ChromaDB on Mac...")
 chroma_client = chromadb.PersistentClient(path=DB_PATH)
 collection = chroma_client.create_collection(name="sop_pabrik_tekstil_local")
 
-# 2. BACA DATA SOP MENTAH
+# 2. READ RAW SOP DATA
 path_sop = os.path.join("knowledge_base", "sop_celup_polyester.txt")
 try:
     with open(path_sop, "r", encoding="utf-8") as f:
         lines = [line.strip() for line in f.readlines() if line.strip()]
 except FileNotFoundError:
-    print(f"[Error]: File {path_sop} belum dibuat. Pastikan file SOP sudah ada!")
+    print(f"[Error]: File {path_sop} does not exist. Please ensure the SOP file is available!")
     exit(1)
 
 # ======================================================================
-# FUNGSI EMBEDDING LOKAL VIA OLLAMA (NOMIC EMBED)
+# LOCAL EMBEDDING FUNCTION VIA OLLAMA (NOMIC EMBED)
 # ======================================================================
-def get_local_embedding(teks: str) -> list[float]:
-    """Mengubah teks menjadi vektor menggunakan model khusus embedding"""
+def get_local_embedding(text: str) -> list[float]:
+    """Convert text into a vector using a dedicated embedding model"""
     response = ollama.embeddings(
         model='nomic-embed-text',
-        prompt=teks
+        prompt=text
     )
     return response['embedding']
 # ======================================================================
 
-print(f"[-] Mentransformasikan {len(lines)} dokumen ke Vektor via Ollama...")
+print(f"[-] Transforming {len(lines)} documents into vectors via Ollama...")
 documents, ids, metadatas, embeddings = [], [], [], []
 
 for index, text in enumerate(lines):
-    # Memanggil fungsi get_local_embedding yang baru
-    vektor = get_local_embedding(text)
-    
-    embeddings.append(vektor)
+    # Call the new get_local_embedding function
+    vector = get_local_embedding(text)
+
+    embeddings.append(vector)
     documents.append(text)
     ids.append(f"id_sop_{index+1}")
-    metadatas.append({"sumber": "sop_celup_polyester.txt", "engine": "nomic-embed"})
+    metadatas.append({"source": "sop_celup_polyester.txt", "engine": "nomic-embed"})
 
-# Simpan data dan vektor murni ke ChromaDB
+# Store pure data and vectors into ChromaDB
 collection.add(documents=documents, embeddings=embeddings, metadatas=metadatas, ids=ids)
-print(f"[✓] Database Vektor Lokal Berhasil Dibangun! (Dimensi: {len(embeddings[0])})")
+print(f"[Local Vector Database Built Successfully! (Dimension: {len(embeddings[0])})")
 
-# 3. PROSES PENCARIAN SEMANTIK LOKAL
-query_user = "Berapa temperature yang aman untuk tekstil sintetis?"
-print(f"\n[Pertanyaan User]: '{query_user}'")
+# 3. LOCAL SEMANTIC SEARCH PROCESS
+query_user = "What is the safe temperature for synthetic textile?"
+print(f"\n[User Question]: '{query_user}'")
 
-print("[-] Mengubah query menjadi vektor via Ollama lokal...")
-vektor_query = get_local_embedding(query_user)
+print("[-] Converting query to vector via local Ollama...")
+query_vector = get_local_embedding(query_user)
 
-print("[-] Menghitung jarak kedekatan makna di memori lokal...")
-hasil = collection.query(query_embeddings=[vektor_query], n_results=1)
+print("[-] Computing semantic proximity in local memory...")
+result = collection.query(query_embeddings=[query_vector], n_results=1)
 
-terbaik_dokumen = hasil['documents'][0][0]
-jarak_vektor = hasil['distances'][0][0]
-print(f"[✓] SOP Terdekat Ditemukan (Jarak: {jarak_vektor:.4f}):\n    \"{terbaik_dokumen}\"")
+best_document = result['documents'][0][0]
+vector_distance = result['distances'][0][0]
+print(f"[Nearest SOP Found (Distance: {vector_distance:.4f}):\n    \"{best_document}\"")
 
-# 4. GENERASI JAWABAN VIA OLLAMA QWEN 2.5 CODER 14B LOKAL
-print("\n[-] Meminta Qwen 2.5 Coder 14B Lokal merangkum jawaban...")
+# 4. ANSWER GENERATION VIA LOCAL OLLAMA QWEN 2.5 CODER 14B
+print("\n[-] Requesting local Qwen 2.5 Coder 14B to summarize the answer...")
 
 prompt_rag = f"""
-Anda adalah pakar sistem RAG Tekstil. Jawablah pertanyaan user secara taktis, padat, dan profesional 
-HANYA berdasarkan fakta dari dokumen SOP yang disediakan. Jangan berasumsi di luar teks!
+You are a Textile RAG system expert. Answer the user's question tactically, concisely, and professionally
+based ONLY on the facts from the provided SOP document. Do not assume anything outside the text!
 
-[DOKUMEN SOP PABRIK]:
-{terbaik_dokumen}
+[SOP FACTORY DOCUMENT]:
+{best_document}
 
-[PERTANYAAN USER]:
+[USER QUESTION]:
 {query_user}
 
-Jawaban Akhir Anda (Bahasa Indonesia):
+Your Final Answer (English):
 """
 
 try:
-    # FIX: Mengubah model ke 'qwen2.5-coder:14b' sesuai environment lokal Anda
     response_ollama = ollama.generate(model='qwen2.5-coder:14b', prompt=prompt_rag)
-    print("\n" + "="*20 + " RESPONS QWEN 2.5 LOKAL " + "="*20)
+    print("\n" + "="*20 + " QWEN 2.5 LOCAL RESPONSE " + "="*20)
     print(response_ollama['response'].strip())
     print("="*64)
 except Exception as e:
-    print(f"[Error Ollama]: Gagal komputasi lokal. Detail: {e}")
+    print(f"[Ollama Error]: Local computation failed. Detail: {e}")

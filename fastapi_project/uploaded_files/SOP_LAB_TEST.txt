@@ -1,0 +1,10 @@
+ID_DOKUMEN: SOP-TEXTILE-LAB-2026
+DOKUMEN STANDARD OPERATING PROCEDURE (SOP) - LABORATORIUM TEKSTIL
+
+---
+1.1 Proses Matching Warna (Dipping)
+Untuk setiap order kain katun atau polyester baru, operator Lab-Warna wajib melakukan skema matching warna menggunakan mesin Spektrofotometer digital. Formula resep zat warna dihitung dalam skala gram per liter (g/L) dengan akurasi timbangan hingga 3 angka di belakang koma. Larutan contoh harus dievaluasi di bawah lampu standar D65 untuk memastikan nilai Delta E (DE) berada di bawah toleransi 0.5 sebelum diserahkan ke bagian produksi.
+
+---
+1.2 Pengujian Ketahanan Luntur (Washing Fastness)
+Setiap sampel kain yang telah dicelup wajib melewati uji ketahanan luntur cuci di Laboratorium Tekstil. Proses pencucian uji menggunakan larutan detergen standar ECE pada suhu konstan 60 derajat Celcius selama 30 menit di dalam mesin Launder-Ometer. Evaluasi perubahan warna kain menggunakan Gray Scale dengan target nilai minimal skala 4 (baik).

@@ -1,0 +1,23 @@
+=== DOKUMEN STANDARD OPERATING PROCEDURE (SOP) PABRIK TEKSTIL ===
+ID_DOKUMEN: SOP-TEXTILE-2026-V1
+TANGGAL_EFEKTIF: 06 JULI 2026
+
+----------------------------------------------------------------------
+BAGIAN 1: DIVISI DYEING (PROSES PENCELUPAN KAIN POLYESTER)
+----------------------------------------------------------------------
+1.1 Persiapan Larutan Celup
+Sebelum kain jenis polyester dimasukkan ke dalam mesin jet dyeing, operator wajib memastikan suhu awal air berada pada angka 60 derajat Celcius. Formula zat warna dispersi harus dilarutkan secara homogen menggunakan mixer eksternal selama 15 menit sebelum dialirkan ke tangki utama.
+
+1.2 Pengaturan Suhu Tinggi (HTHP)
+Proses fiksasi warna pada serat polyester memerlukan kondisi High Temperature High Pressure (HTHP). Naikkan suhu mesin secara bertahap dengan kenaikan 2 derajat Celcius per menit hingga mencapai suhu puncak 130 derajat Celcius. Jaga tekanan pada kondisi stabil selama 45 menit untuk memastikan zat warna meresap sempurna ke dalam serat kain.
+
+----------------------------------------------------------------------
+BAGIAN 2: DIVISI FINISHING (PROSES STENTER & SETTING LEBAR KAIN)
+----------------------------------------------------------------------
+2.1 Pengeringan dan Pengaturan Area Stenter
+Kain yang telah melalui proses pencelupan dan pencucian harus segera dipindahkan ke mesin Stenter untuk proses pengeringan dan pemantapan heat-setting. Kecepatan rantai penarik kain harus dijaga pada kisaran 20 hingga 25 meter per menit, tergantung pada berat gramasi kain (GSM).
+
+2.2 Kontrol Suhu Ruang Over-Feed
+Suhu pada ruang heating chamber mesin stenter untuk kain polyester diatur konstan pada batas 180 derajat Celcius. Operator finishing wajib memeriksa kelembapan keluar kain (moisture content) menggunakan sensor digital di ujung mesin, dengan target akhir kelembapan tidak boleh melebihi batas toleransi 5%.
+
+=== AKHIR DOKUMEN SOP ===

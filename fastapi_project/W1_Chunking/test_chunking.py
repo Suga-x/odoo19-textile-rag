@@ -1,26 +1,26 @@
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-# 1. Simulasi teks SOP Pabrik Makloon Celup Anda
+# 1. Simulate your factory SOP text
 sop_text = """
-SOP-03: PENGATURAN SUHU MESIN STENTER (PRE-SETTING KAIN POLYESTER)
-Untuk mencegah kain polyester mengalami penyusutan (shrinkage) berlebih di atas 2%, operator wajib mengatur suhu oven mesin stenter pada rentang 180°C hingga 190°C. Durasi penarikan kain di dalam oven diatur stabil antara 30 sampai 45 detik saja.
+SOP-03: STENTER MACHINE TEMPERATURE SETTING (POLYESTER FABRIC PRE-SETTING)
+To prevent polyester fabric from excessive shrinkage above 2%, the operator must set the stenter machine oven temperature between 180°C and 190°C. The fabric draw duration inside the oven must be consistently maintained between 30 to 45 seconds only.
 
-SOP-09: KEBIJAKAN GANTI RUGI KERUSAKAN KAIN PELANGGAN
-Jika kerusakan kain greige makloon akibat mesin jet dyeing meledak atau macet melebihi 10 persen dari total volume order, pabrik makloon wajib memberikan kompensasi ganti rugi senilai harga kain greige mentah yang rusak kepada pelanggan. Manajemen tidak bertanggung jawab atas kerugian jika disebabkan oleh kelalaian pihak ketiga.
+SOP-09: CUSTOMER FABRIC DAMAGE COMPENSATION POLICY
+If damage to greige makloon fabric caused by the jet dyeing machine bursting or jamming exceeds 10 percent of the total order volume, the makloon factory is required to provide compensation equal to the value of the damaged raw greige fabric to the customer. Management is not liable for losses caused by third-party negligence.
 """
 
 text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=300,      # Target panjang karakter per chunk
-    chunk_overlap=50,    # Irisan konteks antar chunk tetangga
+    chunk_size=300,      # Target character length per chunk
+    chunk_overlap=50,    # Context overlap between neighboring chunks
     length_function=len,
 )
 
-# 3. Eksekusi Pemotongan Teks
+# 3. Execute Text Splitting
 chunks = text_splitter.create_documents([sop_text])
 
-# 4. Tampilkan Hasil Cetakan di Terminal
-print(f"Total chunk yang dihasilkan: {len(chunks)}\n")
+# 4. Display Results in Terminal
+print(f"Total chunks generated: {len(chunks)}\n")
 for i, chunk in enumerate(chunks):
-    print(f"--- CHUNK ke-{i+1} (Panjang: {len(chunk.page_content)} karakter) ---")
+    print(f"--- CHUNK {i+1} (Length: {len(chunk.page_content)} characters) ---")
     print(chunk.page_content)
     print("-" * 40, "\n")

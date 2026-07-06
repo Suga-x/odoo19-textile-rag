@@ -6,13 +6,15 @@ services:
     container_name: odoo19_ce
     depends_on:
       - db
-      - ai-engine # 🔥 Odoo baru boleh jalan setelah database dan AI engine siap
+      - ai-engine 
+      - redis
     ports:
       - "8019:8069"
     volumes:
       - ./odoo19_data:/var/lib/odoo
       - ./config:/etc/odoo
       - ./addons:/mnt/extra-addons
+      - ./config/odoo.conf:/etc/odoo/odoo.conf
       - /tmp/odoo19_sessions:/tmp/odoo_sessions
     environment:
       - HOST=db
@@ -20,7 +22,7 @@ services:
       - PASSWORD=odoo
     command: odoo -u mrp_ai_expert,textile_rag -d odoo19_ce
     networks:
-      - textile-network # 🔥 Sambungkan Odoo ke jaringan internal
+      - textile-network 
 
   db:
     image: postgres:16
@@ -34,27 +36,77 @@ services:
     volumes:
       - ./postgresql_data_19:/var/lib/postgresql/data
     networks:
-      - textile-network # 🔥 Sambungkan DB ke jaringan internal
+      - textile-network
 
   # ====================================================================
-  # 🔥 SERVICE BARU: FASTAPI TEXTILE RAG AI ENGINE
+  # 🔥 AI ENGINE: FASTAPI TEXTILE RAG (+ Celery integration)
   # ====================================================================
   ai-engine:
     build:
-      context: ./fastapi_project # ⚠️ SESUAIKAN: ganti dengan nama folder proyek FastAPI Anda
+      context: ./fastapi_project
       dockerfile: Dockerfile
     container_name: textile_ai_engine
     ports:
-      - "8000:8000" # Tetap buka port 8000 agar Anda bisa akses Swagger UI dari browser laptop
+      - "8000:8000"
     volumes:
-      - ./fastapi_project:/app # Menyinkronkan kode lokal agar auto-reload tetap jalan saat development
-      - ./chroma_db:/app/chroma_db # Persistent volume agar data koordinat ChromaDB Anda tidak hilang saat container restart
+      - ./fastapi_project:/app
+      - ./chroma_db:/app/chroma_db
     environment:
       - CHROMA_DATA_PATH=/app/chroma_db
-      - GEMINI_API_KEY=AIzaSyYourRealGeminiKeyHere # Masukkan API Key cloud Anda jika diperlukan
-      - AI_PROVIDER=gemini 
+      - GEMINI_API_KEY=AIzaSyYourRealGeminiKeyHere
+      - AI_PROVIDER=ollama
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_API_BASE=http://ollama:11434
+    depends_on:
+      - redis
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     networks:
-      - textile-network 
+      - textile-network
+
+  # ====================================================================
+  # 🔥 REDIS BROKER (message broker untuk Celery task queue)
+  # ====================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: textile_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - textile-network
+
+  # ====================================================================
+  # 🔥 OLLAMA LLM SERVER (local LLM inference)
+  # ====================================================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama_server
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./ollama_data:/root/.ollama
+    networks:
+      - textile-network
+
+  # ====================================================================
+  # 🔥 CELERY WORKER (background task processor)
+  # ====================================================================
+  celery_worker:
+    build:
+      context: ./fastapi_project
+      dockerfile: Dockerfile
+    container_name: textile_celery_worker
+    command: celery -A tasks worker --loglevel=info --concurrency=2 --max-tasks-per-child=50
+    volumes:
+      - ./fastapi_project:/app
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_API_BASE=http://ollama:11434
+    depends_on:
+      - redis
+    networks:
+      - textile-network
 
 networks:
   textile-network:

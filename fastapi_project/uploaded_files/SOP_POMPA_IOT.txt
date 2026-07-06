@@ -1,0 +1,10 @@
+ID_DOKUMEN: SOP-FACILITY-IOT-2026
+DOKUMEN STANDARD OPERATING PROCEDURE (SOP) - MAINTENANCE & IOT
+
+---
+1.1 Kalibrasi Sensor Tekanan Air (Pressure Gauge)
+Setiap awal bulan, tim divisi IoT-Engineering wajib melakukan kalibrasi pada sensor tekanan air yang terhubung ke jaringan pompa utama. Batas tekanan normal operasional adalah 3.5 Bar hingga 4.2 Bar. Jika sensor membaca tekanan di atas 5.0 Bar, sistem IoT harus mengirimkan notifikasi peringatan bahaya (Overpressure Alert) via Telegram ke tim maintenance dalam waktu kurang dari 5 detik.
+
+---
+1.2 Prosedur Emergency Shutdown Pompa
+Jika terjadi kebocoran pipa utama, operator divisi Maintenance wajib menekan tombol Emergency Stop fisik berwarna merah di panel utama. Setelah tombol ditekan, katup utama (Main Valve) harus ditutup secara manual dengan memutar tuas searah jarum jam sebanyak 10 putaran penuh untuk menghentikan aliran air total.
