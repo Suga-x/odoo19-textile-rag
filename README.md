@@ -1,135 +1,253 @@
-
 # Textile MRP AI Expert: Enterprise RAG System with Hybrid Search
 
 [![Odoo](https://img.shields.io/badge/Odoo-19.0%20CE-purple.svg)](https://www.odoo.com/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110.0-009688.svg?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-blue.svg?style=flat&logo=docker&logoColor=white)](https://www.docker.com/)
 [![ChromaDB](https://img.shields.io/badge/VectorDB-ChromaDB-red.svg)](https://www.trychroma.com/)
+[![Celery](https://img.shields.io/badge/Task%20Queue-Celery-green.svg)](https://docs.celeryq.dev/)
 
-Sistem AI Assistant berbasis **Retrieval-Augmented Generation (RAG)** skala *enterprise* yang diintegrasikan langsung ke dalam modul **Odoo 19 Manufacturing (MRP)**. Sistem ini dirancang khusus untuk industri manufaktur tekstil guna membantu operator pabrik dan tim *Quality Control* (QC) melakukan pencarian Standar Operasional Prosedur (SOP), regulasi celup, dan instruksi kerja secara instan dan akurat.
+An enterprise-grade **Retrieval-Augmented Generation (RAG)** AI Assistant integrated directly into **Odoo 19 Manufacturing (MRP)**. This system is purpose-built for the textile manufacturing industry to help factory operators and Quality Control teams search Standard Operating Procedures (SOP), dyeing regulations, and work instructions instantly and accurately.
 
 ---
 
-## 🏗️ Arsitektur Sistem (System Architecture)
+## 🏗️ System Architecture
 
-Sistem ini mengadopsi arsitektur *Decoupled Microservices* yang memisahkan core ERP dengan AI Engine menggunakan jaringan internal Docker yang aman.
+The system adopts a **Decoupled Microservices** architecture, separating the core ERP from the AI Engine using a secure Docker internal network.
 
 ```text
-[ Docker Internal Network ]
+[ Docker Internal Network - textile-network ]
 ========================================================================
-┌───────────────┐        REST API Request        ┌─────────────────┐
-│   Odoo 19     │ ─────────────────────────────> │ FastAPI Server  │
-│ (OWL Frontend)│ <───────────────────────────── │   (AI Engine)   │
-└───────┬───────┘        JSON API Response       └────────┬────────┘
-        │                                                 │
-        │ PostgreSQL (Port 5432)                          │ Hybrid Search
-        v                                                 v
-┌───────────────┐                        ┌─────────────────────────────────┐
-│  PostgreSQL   │                        │ 1. ChromaDB (Dense/Vector Vector)│
-│   (Database)  │                        │ 2. Rank-BM25 (Sparse/Keywords)  │
-└───────────────┘                        └────────────────┬────────────────┘
-                                                          │
-                                                          │ LiteLLM Router
-                                                          v
-                                         ┌─────────────────────────────────┐
-                                         │     Resilient Provider Flow     │
-                                         │ ┌──────────────┐   ┌──────────┐ │
-                                         │ │  Gemini API  │──>│  Ollama  │ │
-                                         │ │   (Cloud)    │   │ (Local)  │ │
-                                         │ └──────────────┘   └──────────┘ │
-                                         └─────────────────────────────────┘
-========================================================================
+┌───────────────┐        REST API Request        ┌──────────────────────┐
+│   Odoo 19     │ ─────────────────────────────> │   FastAPI AI Engine  │
+│ (OWL Frontend)│ <───────────────────────────── │   (textile_ai_engine)│
+└───────┬───────┘        JSON API Response       └─────────┬────────────┘
+        │                                                    │
+        │ PostgreSQL (Port 5419)                              │ Hybrid Search
+        v                                                    v
+┌───────────────┐                        ┌──────────────────────────────┐
+│  PostgreSQL   │                        │ 1. ChromaDB (Dense/Vector)   │
+│   (Database)  │                        │ 2. Rank-BM25 (Sparse/Keyword)│
+└───────────────┘                        └──────────┬───────────────────┘
+                                                     │
+                                            ┌────────v──────────┐
+                                            │  LLM Service      │
+                                            │  ┌──────────────┐ │
+                                            │  │  Gemini API  │ │
+                                            │  │  (optional)  │ │
+                                            │  └──────┬───────┘ │
+                                            │         │ fallback │
+                                            │  ┌──────v───────┐ │
+                                            │  │ Ollama       │ │
+                                            │  │ (Docker)     │ │
+                                            │  └──────────────┘ │
+                                            └───────────────────┘
 
+[ Background Processing ]
+┌──────────┐     ┌──────────────┐     ┌─────────────────┐
+│  Redis   │<───>│ Celery Worker│<───>│ Async SOP Ingest│
+│ (Broker) │     │ (textile_)   │     └─────────────────┘
+└──────────┘     └──────────────┘
+========================================================================
 ```
 
-## Alur Kerja Komunikasi Data:
+## Data Communication Flow
 
-* **Ingestion Phase:** Admin mengunggah dokumen SOP tekstil melalui antarmuka Odoo. Controller Odoo mengirimkan file berkas ke endpoint `/api/ingest` milik FastAPI. Teks kemudian dipotong (*chunking*) dan ditanamkan ke **ChromaDB** (sebagai representasi vektor) serta diindeks menggunakan **Rank-BM25** (untuk pencarian kata kunci eksak).
+* **Ingestion Phase:** Admin uploads SOP documents via the Odoo interface. The Odoo controller sends the file to the FastAPI `/api/ingest` endpoint. Text is chunked and embedded into **ChromaDB** (as vector representations) and indexed with **Rank-BM25** (for exact keyword search).
 
-* **Query Phase:** Operator menanyakan keluhan mesin atau prosedur via chatbox Odoo (OWL UI). Odoo meneruskan pesan tersebut ke FastAPI lewat endpoint `/api/query`.
+* **Background Ingestion (Async):** For larger documents, the `/api/v1/ingest` endpoint dispatches processing to a **Celery Worker** via Redis, allowing the API to respond immediately while ingestion happens in the background.
 
-* **Retrieval (Hybrid Search):** FastAPI mengeksekusi *Hybrid Search* dengan menggabungkan hasil pencarian semantik (ChromaDB) dan pencarian leksikal/kode dokumen eksak (BM25) untuk mendapatkan konteks dokumen yang paling relevan.
+* **Query Phase:** An operator asks a machine issue or procedure question via the Odoo chatbox (OWL UI). Odoo forwards the message to FastAPI via the `/api/query` endpoint.
 
+* **Retrieval (Hybrid Search):** FastAPI executes a **Hybrid Search** combining semantic search results (ChromaDB) and exact lexical/document code search (BM25) to retrieve the most relevant document context.
 
-* **Generation & Fallback:** Konteks dokumen dikirim ke LLM melalui LiteLLM. Jika koneksi cloud **Gemini API** terputus, sistem otomatis mengalihkan beban (*resilient fallback*) ke model lokal **Ollama (Qwen2.5-Coder)** sehingga operasional pabrik tidak terganggu.
+* **Generation & Fallback:** The document context is sent to the LLM. If the cloud **Gemini API** is unreachable, the system automatically falls back to the local **Ollama (qwen2.5-coder:14b)** running as a Docker container — ensuring factory operations are never interrupted.
 
----
+* **History-Aware Queries:** The `/api/query/history` endpoint maintains session-based conversation history for contextual multi-turn dialogue.
 
-## 🌟 Fitur Utama
-
-* **Hybrid Search Accuracy:** Menggabungkan pencarian makna teks (*Dense Retrieval*) dan pencarian kode instruksi/SOP eksak (*Sparse Retrieval - BM25*) untuk meminimalisir halusinasi AI pada data teknis pabrik.
-* **Resilient AI Pipeline:** Mekanisme *fallback* otomatis dari model komersial Cloud (Gemini) ke model lokal (Ollama) saat terjadi gangguan internet di area pabrik.
-* **Isolated Session Chat History:** Riwayat percakapan diisolasi penuh berbasis ID Dokumen/ID Operator Odoo, memastikan konteks obrolan tetap relevan selama sesi analisis berlangsung.
-* **Fully Dockerized Ecosystem:** Seluruh komponen (Odoo, DB, FastAPI, Vector Store) dapat dinyalakan secara instan di server lokal pabrik (*on-premise*) maupun *cloud* hanya dengan satu perintah Docker Compose.
+* **Guardrails:** The `/api/query/guards` endpoint enforces input validation, forbidden keyword filtering, and distance threshold checks before any LLM call.
 
 ---
 
-## 🛠️ Teknologi yang Digunakan (Tech Stack)
+## 🌟 Key Features
+
+* **Hybrid Search Accuracy:** Combines Dense Retrieval (semantic meaning) and Sparse Retrieval (exact SOP/code matching via BM25) to minimize AI hallucinations on factory technical data.
+* **Resilient AI Pipeline:** Automatic fallback from cloud LLM (Gemini) to local LLM (Ollama) during internet outages in factory areas.
+* **Isolated Session Chat History:** Conversation history is fully isolated per session ID, maintaining relevant context during analysis sessions.
+* **Async Document Ingestion:** Large SOP files are processed in the background via Celery workers, keeping the API responsive.
+* **Guardrail Protection:** Multi-layer safety checks including character limits, forbidden patterns, and vector distance thresholds prevent misuse.
+* **Fully Dockerized Ecosystem:** All components (Odoo, PostgreSQL, FastAPI, ChromaDB, Redis, Ollama) spin up instantly on-premise or in the cloud with a single Docker Compose command.
+
+---
+
+## 🛠️ Tech Stack
 
 * **ERP Framework:** Odoo 19.0 Community Edition (Python, OWL Javascript Framework)
 * **AI Core Backend:** FastAPI (Python 3.11)
 * **Vector Database:** ChromaDB
 * **Lexical Search Engine:** Rank-BM25
-* **LLM Gateway:** LiteLLM (Google Gemini & Ollama Router)
-* **Database Utama:** PostgreSQL 16
-* **Infrastruktur:** Docker & Docker Compose
+* **LLM Providers:** Google Gemini API (cloud) + Ollama (local, Docker-based)
+* **Task Queue:** Celery with Redis broker
+* **Database:** PostgreSQL 16
+* **Infrastructure:** Docker & Docker Compose
 
 ---
 
-## 🚀 Panduan Instalasi & Penggunaan
-
-### 1. Prasyarat
-
-Pastikan komputer Anda sudah terpasang:
-
-* Docker Desktop (untuk Mac/Windows) atau Docker Engine (untuk Linux)
-* Git
-
-### 2. Klon Repositori
-
-```bash
-git clone [https://github.com/rian/odoo19-textile-rag.git](https://github.com/rian/odoo19-textile-rag.git)
-cd odoo19-textile-rag
-
-```
-
-### 3. Struktur Direktori Proyek
+## 📁 Project Structure
 
 ```text
 .
-├── docker-compose.yaml     # Orkestrasi container global
-├── addons/                 # Custom module Odoo (mrp_ai_expert & textile_rag)
-├── fastapi_project/        # Source code AI Engine FastAPI
-│   ├── main.py
-│   ├── Dockerfile
-│   └── services/
-└── config/                 # Berkas konfigurasi Odoo
-
+├── docker-compose.yaml        # Global container orchestration (6 services)
+├── addons/                    # Odoo custom modules
+│   ├── mrp_ai_expert/         #   - MRP AI Expert integration
+│   └── textile_rag/           #   - Textile RAG frontend (OWL)
+├── fastapi_project/           # AI Engine source code (FastAPI)
+│   ├── main.py                #   - FastAPI app with all endpoints
+│   ├── celery_app.py          #   - Celery application config
+│   ├── tasks.py               #   - Async task definitions
+│   ├── config.py              #   - Application settings
+│   ├── schemas.py             #   - Pydantic request/response models
+│   ├── llm_router.py          #   - LLM routing from context list
+│   ├── ingest_sop.py          #   - ChromaDB ingestion & search
+│   ├── dockerfile             #   - Python 3.11 container image
+│   ├── services/
+│   │   ├── embedding.py       #   - Embedding service (Ollama)
+│   │   └── llm.py             #   - LLM service (Gemini + Ollama fallback)
+│   └── W1_Chunking/           #   - Chunking experiments
+│       ├── ingest_sop.py
+│       └── test_chunking.py
+├── config/
+│   └── odoo.conf              # Odoo configuration file
+└── knowledge_base/            # Raw SOP text files
 ```
-
-### 4. Menyalakan Ekosistem Aplikasi
-
-Jalankan perintah di bawah ini pada root direktori untuk membangun *image* dan menyalakan seluruh container secara terpusat:
-
-```bash
-docker-compose up --build
-
-```
-
-Setelah proses selesai, layanan dapat diakses di alamat berikut:
-
-* **Odoo 19 ERP:** `http://localhost:8019`
-* **FastAPI Swagger Docs:** `http://localhost:8000/docs`
 
 ---
 
-## 📊 Integrasi API Endpoint Utama (FastAPI)
+## 🚀 Installation & Usage Guide
 
-AI Engine menyediakan endpoint krusial yang dikonsumsi oleh Odoo Controller:
+### 1. Prerequisites
 
-* `POST /api/ingest` : Menerima unggahan dokumen dari Odoo untuk diproses ke dalam Vector Store.
-* `POST /api/query` : Menerima pertanyaan dari operator, mengeksekusi *Hybrid Search*, dan mengembalikan jawaban LLM.
-* `GET /api/query/history` : Mengambil riwayat percakapan berdasarkan token sesi aktif.
+Make sure your system has:
+
+* Docker Engine (Linux) or Docker Desktop (Mac/Windows)
+* Git
+* At least 16GB RAM (for Ollama LLM container)
+
+### 2. Clone Repository
+
+```bash
+git clone https://github.com/rian/odoo19-textile-rag.git
+cd odoo19-textile-rag
+```
+
+### 3. Environment Configuration
+
+Copy the provided configuration and adjust as needed:
+
+```bash
+# (Optional) Set your Gemini API key in docker-compose.yaml
+# if you want to use Gemini instead of local Ollama
+# Look for: GEMINI_API_KEY=AIzaSyYourRealGeminiKeyHere
+```
+
+### 4. Start All Services
+
+Build images and start all containers:
+
+```bash
+docker compose up -d --build
+```
+
+### 5. Pull the LLM Model
+
+After the containers are running, pull the local Qwen model into the Ollama container:
+
+```bash
+docker exec ollama_server ollama pull qwen2.5-coder:14b
+```
+
+### 6. Access the Services
+
+| Service | URL |
+|---------|-----|
+| **Odoo 19 ERP** | `http://localhost:8019` |
+| **FastAPI Swagger Docs** | `http://localhost:8000/docs` |
+| **Redis** (internal) | `redis://redis:6379/0` |
+| **Ollama API** (internal) | `http://ollama:11434` |
+
+---
+
+## 🔌 API Endpoint Reference
+
+### Core RAG Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/query` | Query RAG with hybrid search + structured context |
+| `POST` | `/api/query/ask` | Simple single-document query with distance guard |
+| `POST` | `/api/query/history` | History-aware multi-turn query |
+| `POST` | `/api/query/guards` | Query with full guardrail protection (input filter + distance threshold) |
+| `POST` | `/api/ingest` | Upload & ingest SOP document synchronously |
+
+### Background Processing Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/ingest` | Upload SOP — processed asynchronously via Celery worker |
+| `POST` | `/api/v1/query` | RAG pipeline: retrieval → distance filter (≤0.80) → LLM generation |
+
+### Admin Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/sops` | List all registered SOPs in the system |
+| `GET` | `/api/health` | Health check |
+
+### Example: Query with Guardrails
+
+```bash
+curl -X POST "http://localhost:8000/api/query/guards" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What is the target moisture content tolerance?", "division": "Finishing"}'
+```
+
+### Example: Async Ingest via Celery
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/ingest" \
+  -F "file=@SOP_DYEING.txt"
+```
+
+---
+
+## 🐳 Docker Services Overview
+
+| Service | Image | Container Name | Port(s) |
+|---------|-------|----------------|---------|
+| `web-odoo19-ce` | `odoo:19.0` | `odoo19_ce` | `8019:8069` |
+| `db` | `postgres:16` | `postgres19` | `5419:5432` |
+| `ai-engine` | Custom (`./fastapi_project`) | `textile_ai_engine` | `8000:8000` |
+| `redis` | `redis:7-alpine` | `textile_redis` | `6379:6379` |
+| `ollama` | `ollama/ollama:latest` | `ollama_server` | `11434:11434` |
+| `celery_worker` | Custom (`./fastapi_project`) | `textile_celery_worker` | — |
+
+All services are connected to the `textile-network` bridge for internal DNS resolution.
+
+---
+
+## 📝 Recent Updates
+
+- **Async Ingestion:** Added Celery worker + Redis broker for background document processing (`/api/v1/ingest`)
+- **Ollama as Docker Service:** Ollama LLM now runs as a container on the internal network instead of requiring a host installation
+- **LLM Fallback:** Native `ollama.generate()` used for local fallback, bypassing LiteLLM HTTP routing issues in Docker
+- **New Query Pipeline:** `/api/v1/query` implements full RAG pipeline with ChromaDB retrieval → distance filtering (≤0.80) → LLM generation
+- **Code Refactoring:** All identifiers and comments translated from Indonesian to English for international standards
+- **Multi-layer Guardrails:** Input validation, forbidden keyword detection, and distance threshold checks before LLM invocation
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please fork the repository and submit a pull request with your improvements.
 
 ---
 
