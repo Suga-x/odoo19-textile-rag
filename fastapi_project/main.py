@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from typing import Dict, Optional
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from rank_bm25 import BM25Okapi
-from tasks import task_ingest_sop_textile
+from tasks import task_ingest_sop_textile, task_query_sop
 from ingest_sop import search_relevant_documents
 
 chroma_client = chromadb.PersistentClient(path=settings.DB_PATH)
@@ -471,6 +471,77 @@ async def query_rag_endpoint(query: str, division: str = None):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to process RAG pipeline: {str(e)}")
+
+
+@app.post("/api/v1/query/async", tags=["Core RAG Engine V1"])
+async def query_rag_async(question: str, division: str = None, session_id: str = None):
+    """
+    🟢 HIGH PRIORITY QUEUE — Query RAG secara asinkron via Celery.
+    
+    Endpoint ini dispatch task ke 'high_priority' queue agar diproses
+    oleh worker khusus real-time. Cocok untuk request dari operator pabrik
+    yang membutuhkan respons cepat.
+
+    Returns:
+        HTTP 202 Accepted dengan task_id untuk polling status.
+    """
+    try:
+        if not question.strip():
+            raise HTTPException(status_code=400, detail="Question cannot be empty.")
+
+        # Dispatch ke Celery high_priority queue
+        task = task_query_sop.delay(
+            question=question,
+            division=division,
+            session_id=session_id
+        )
+
+        return JSONResponse(
+            status_code=202,
+            content={
+                "message": "Query is being processed in the high-priority queue.",
+                "task_id": str(task.id),
+                "queue": "high_priority",
+                "poll_url": f"/api/v1/task/{task.id}"
+            }
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to dispatch query: {str(e)}")
+
+
+@app.get("/api/v1/task/{task_id}", tags=["Core RAG Engine V1"])
+async def get_task_result(task_id: str):
+    """
+    Polling endpoint untuk mengecek hasil task Celery.
+    Dipanggil setelah /api/v1/query/async untuk mengambil hasil query.
+    """
+    from celery.result import AsyncResult
+    from celery_app import celery_app
+
+    task_result = AsyncResult(task_id, app=celery_app)
+
+    if task_result.pending:
+        return {
+            "status": "pending",
+            "message": "Task is still being processed in the queue."
+        }
+    elif task_result.failed():
+        return {
+            "status": "failed",
+            "message": str(task_result.info) if task_result.info else "Task failed without details."
+        }
+    elif task_result.successful():
+        return {
+            "status": "success",
+            "result": task_result.result
+        }
+
+    return {
+        "status": "unknown",
+        "message": "Task status could not be determined."
+    }
+
 
 @app.get("/api/sops", status_code=status.HTTP_200_OK, tags=["Administrative Engine"])
 async def get_registered_sops_list():

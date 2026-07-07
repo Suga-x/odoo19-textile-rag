@@ -89,14 +89,28 @@ services:
       - textile-network
 
   # ====================================================================
-  # 🔥 CELERY WORKER (background task processor)
+  # 🟢 CELERY WORKER — HIGH PRIORITY (Real-time Operator Queries)
   # ====================================================================
-  celery_worker:
+  # Worker ini khusus menangani task dari queue 'high_priority':
+  # - Query RAG dari operator pabrik (real-time, < 200ms)
+  # - Concurrency lebih tinggi (4) agar respons cepat
+  # - restart otomatis setiap 100 task untuk cegah memory leak
+  # ====================================================================
+  celery_worker_high:
     build:
       context: ./fastapi_project
       dockerfile: Dockerfile
-    container_name: textile_celery_worker
-    command: celery -A tasks worker --loglevel=info --concurrency=2 --max-tasks-per-child=50
+    container_name: textile_celery_high
+    command: >
+      celery -A tasks worker
+      --queues=high_priority
+      --loglevel=info
+      --concurrency=4
+      --max-tasks-per-child=100
+      --prefetch-multiplier=1
+      --events
+      --time-limit=180
+      --soft-time-limit=150
     volumes:
       - ./fastapi_project:/app
     environment:
@@ -108,6 +122,70 @@ services:
     networks:
       - textile-network
 
+  # ====================================================================
+  # 🔴 CELERY WORKER — LOW PRIORITY (Background SOP Ingest)
+  # ====================================================================
+  # Worker ini khusus menangani task dari queue 'low_priority':
+  # - Ingest dokumen SOP besar (ratusan halaman)
+  # - Concurrency rendah (1) agar tidak boros CPU
+  # - Restart tiap 10 task karena ingest berat bisa makan memory
+  # ====================================================================
+  celery_worker_low:
+    build:
+      context: ./fastapi_project
+      dockerfile: Dockerfile
+    container_name: textile_celery_low
+    command: >
+      celery -A tasks worker
+      --queues=low_priority
+      --loglevel=info
+      --concurrency=1
+      --max-tasks-per-child=10
+      --prefetch-multiplier=1
+      --events
+      --time-limit=600
+      --soft-time-limit=540
+    volumes:
+      - ./fastapi_project:/app
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_API_BASE=http://ollama:11434
+    depends_on:
+      - redis
+    networks:
+      - textile-network
+
+  # ====================================================================
+  # 📊 FLOWER DASHBOARD — Real-time Celery Monitoring
+  # ====================================================================
+  # Interface visual untuk memonitor:
+  # - Antrean task (high & low priority)
+  # - Worker health & utilisasi CPU
+  # - Riwayat task sukses/gagal
+  # - Manual retry / revoke task
+  # ====================================================================
+  flower:
+    image: mher/flower:2.0
+    container_name: textile_flower
+    command: >
+      celery flower
+      --broker=redis://redis:6379/0
+      --port=5555
+      --basic-auth=admin:s3cur3P@ss
+      --max-tasks=10000
+      --persistent=True
+      --db=/data/flower.db
+      --natural-time=True
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+    volumes:
+      - flower_data:/data
+    networks:
+      - textile-network
+
 networks:
   textile-network:
     driver: bridge
@@ -116,3 +194,4 @@ volumes:
   odoo19-web-data:
   odoo19-db-data:
   odoo19-chroma-data:
+  flower_data:
