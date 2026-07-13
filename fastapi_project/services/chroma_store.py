@@ -1,4 +1,4 @@
-# fastapi_project/services/chroma_store.py
+
 """
 ChromaDB Vector Store Implementation (Legacy).
 

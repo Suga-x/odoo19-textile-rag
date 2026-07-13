@@ -50,10 +50,11 @@ services:
     volumes:
       - ./fastapi_project:/app
       - ./chroma_db:/app/chroma_db
+    env_file:
+      - .env
     environment:
+      - AI_PROVIDER=gemini
       - CHROMA_DATA_PATH=/app/chroma_db
-      - GEMINI_API_KEY=AIzaSyYourRealGeminiKeyHere
-      - AI_PROVIDER=ollama
       - CELERY_BROKER_URL=redis://redis:6379/0
       - OLLAMA_HOST=http://ollama:11434
       - OLLAMA_API_BASE=http://ollama:11434

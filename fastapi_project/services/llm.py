@@ -1,4 +1,6 @@
 import os
+import time
+import re
 from litellm import completion
 from dotenv import load_dotenv
 import ollama
@@ -6,6 +8,52 @@ import ollama
 load_dotenv()
 
 class LLMService:
+
+    @staticmethod
+    def _call_gemini_with_retry(model: str, messages: list, temperature: float = 0.2, timeout: int = 15, max_retries: int = 2) -> str:
+        """
+        Call Gemini via LiteLLM with automatic retry on rate-limit (429) errors.
+        Respects the 'retry_delay' seconds from the API response.
+        """
+        last_exception = None
+        for attempt in range(max_retries + 1):
+            try:
+                if attempt > 0:
+                    wait = 2 ** attempt  # exponential backoff: 2s, 4s
+                    print(f" [LLM RETRY] Attempt {attempt + 1}/{max_retries + 1}, waiting {wait}s...")
+                    time.sleep(wait)
+
+                response = completion(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    timeout=timeout
+                )
+                return response.choices[0].message.content
+
+            except Exception as e:
+                last_exception = e
+                error_str = str(e).lower()
+                # Check if this is a rate-limit / quota error that might be retryable
+                if any(kw in error_str for kw in ["quota", "rate_limit", "resource_exhausted", "429", "retry_delay"]):
+                    # Try to extract retry_delay from the error message
+                    retry_match = re.search(r'retry_delay\s*\{\s*seconds:\s*(\d+)', str(e), re.IGNORECASE)
+                    if retry_match and attempt < max_retries:
+                        delay = int(retry_match.group(1))
+                        print(f" [LLM RATE LIMITED] Quota exceeded. Waiting {delay}s as suggested by API...")
+                        time.sleep(delay)
+                        continue
+                    # If we see a retry_delay but no match, still try exponential backoff
+                    if "retry_delay" in error_str and attempt < max_retries:
+                        time.sleep(5)
+                        continue
+                # For non-retryable errors, break immediately
+                print(f" [LLM GEMINI ERROR] {str(e)}")
+                break
+
+        # If all retries exhausted, re-raise the last exception
+        raise last_exception
+
     @staticmethod
     def generate_rag_answer_history(question: str, retrieved_sop: str, history: list[dict[str, str]]) -> str:
         ai_provider = os.getenv("AI_PROVIDER", "ollama").lower()
@@ -39,13 +87,10 @@ class LLMService:
         try:
             if ai_provider == "gemini":
                 print(" [LLM ROUTER] Attempting to contact Google Gemini API with history context...")
-                response = completion(
-                    model="gemini/gemini-1.5-pro",
-                    messages=messages_payload,
-                    temperature=0.2,
-                    timeout=15
+                return LLMService._call_gemini_with_retry(
+                    model="gemini/gemini-2.0-flash",
+                    messages=messages_payload
                 )
-                return response.choices[0].message.content
 
         except Exception as e:
             print(f" [LLM FALLBACK] Gemini failed: {str(e)}. Redirecting to local Ollama...")
@@ -101,16 +146,13 @@ class LLMService:
         try:
             if ai_provider == "gemini":
                 print(" [LLM ROUTER] Attempting to contact Google Gemini API...")
-                response = completion(
-                    model="gemini/gemini-1.5-pro",
+                return LLMService._call_gemini_with_retry(
+                    model="gemini/gemini-2.0-flash",
                     messages=[
                         {'role': 'system', 'content': system_instruction},
                         {'role': 'user', 'content': f"Operator Question: {question}"}
-                    ],
-                    temperature=0.2,
-                    timeout=15
+                    ]
                 )
-                return response.choices[0].message.content
 
         except Exception as e:
             print(f" [LLM FALLBACK] Gemini failed: {str(e)}. Redirecting to local Ollama...")
