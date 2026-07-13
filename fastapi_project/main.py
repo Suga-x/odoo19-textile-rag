@@ -1,13 +1,12 @@
 import os
-import chromadb
 import traceback
-from chromadb.utils import embedding_functions
 from fastapi import FastAPI, UploadFile, File, Form, status, HTTPException
 from fastapi.responses import RedirectResponse, JSONResponse
 from config import settings
 from schemas import QueryRequest, QueryResponse
 from services.embedding import EmbeddingService
 from services.llm import LLMService
+from services.store_factory import get_vector_store, health_check_vector_store
 from pydantic import BaseModel
 from typing import Dict, Optional
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -15,8 +14,8 @@ from rank_bm25 import BM25Okapi
 from tasks import task_ingest_sop_textile, task_query_sop
 from ingest_sop import search_relevant_documents
 
-chroma_client = chromadb.PersistentClient(path=settings.DB_PATH)
-collection = chroma_client.get_or_create_collection(name=settings.COLLECTION_NAME)
+# Initialize vector store via factory (Qdrant/Chroma/Dual based on VECTOR_DB_PROVIDER)
+vector_store = get_vector_store()
 
 
 app = FastAPI(
@@ -39,26 +38,23 @@ class QueryRequest(BaseModel):
 
 def get_hybrid_search(question: str, division: Optional[str] = None) -> str:
     """
-    Dynamically fetch corpus from ChromaDB for BM25,
+    Dynamically fetch corpus from vector store for BM25,
     then merge with Vector Search.
     """
     try:
         filter_metadata = {"division": division} if division else {}
 
-        # 1. Fetch documents from ChromaDB dynamically
-        all_docs = collection.get(where=filter_metadata)
-
-        corpus_texts = all_docs.get('documents', [])
-        metadatas = all_docs.get('metadatas', [])
+        # 1. Fetch documents from vector store dynamically
+        all_ids, corpus_texts, metadatas = vector_store.get_all(filter_metadata=filter_metadata)
 
         # Compute query embedding first so dimensions are consistent (768)
         query_embedding = EmbeddingService.get_embedding(question)
 
-        # Anticipate empty ChromaDB
+        # Anticipate empty vector store
         if not corpus_texts:
-            print(" [HYBRID] ChromaDB corpus is empty. Falling back to Vector Search only.")
-            vector_results = collection.query(query_embeddings=[query_embedding], n_results=1)
-            return vector_results['documents'][0][0] if vector_results['documents'] else "SOP not found."
+            print(" [HYBRID] Vector store corpus is empty. Falling back to Vector Search only.")
+            vector_results = vector_store.query(query_embedding=query_embedding, n_results=1)
+            return vector_results[0]['document'] if vector_results else "SOP not found."
 
         # 2. INITIALIZE BM25 LIVE BASED ON DB CONTENT
         tokenized_corpus = [doc.lower().split(" ") for doc in corpus_texts]
@@ -69,13 +65,13 @@ def get_hybrid_search(question: str, division: Optional[str] = None) -> str:
         bm25_best_docs = bm25.get_top_n(tokenized_query, corpus_texts, n=1)
         keyword_result = bm25_best_docs[0] if bm25_best_docs else ""
 
-        # 4. RUN VECTOR SEARCH (CHROMADB)
-        vector_results = collection.query(
-            query_embeddings=[query_embedding],
+        # 4. RUN VECTOR SEARCH (Qdrant/Chroma)
+        vector_results = vector_store.query(
+            query_embedding=query_embedding,
             n_results=1,
-            where=filter_metadata
+            filter_metadata=filter_metadata
         )
-        vector_result = vector_results['documents'][0][0] if vector_results['documents'] else ""
+        vector_result = vector_results[0]['document'] if vector_results else ""
 
         # 5. RERANKING / MERGE STRATEGY
         has_exact_code = False
@@ -90,7 +86,7 @@ def get_hybrid_search(question: str, division: Optional[str] = None) -> str:
             print(" [RETRIEVER] BM25 path: Successfully matched exact keyword code.")
             return keyword_result
 
-        print(" [RETRIEVER] Vector path: Using ChromaDB semantic proximity.")
+        print(" [RETRIEVER] Vector path: Using semantic proximity.")
         return vector_result if vector_result else keyword_result
 
     except Exception as e:
@@ -109,7 +105,7 @@ async def query_rag_engine_history(payload: QueryRequest):
         chat_sessions[session_id] = []
     current_history = chat_sessions[session_id]
 
-    # 2. Search SOP documents from ChromaDB
+    # 2. Search SOP documents from vector store
     retrieved_docs = get_hybrid_search(question=question, division=division)
 
     # 3. Call dynamic LiteLLM service with chat history
@@ -152,7 +148,7 @@ async def query_rag_system_guards(request: QueryRequest):
                 "chunks_used": 0
             }
 
-        # LAYER 2: DATABASE PROCESSING (CHROMADB) WITH SAFE-GUARD
+        # LAYER 2: VECTOR DATABASE PROCESSING WITH SAFE-GUARD
         try:
             query_embedding = EmbeddingService.get_embedding(clean_question)
         except Exception as embed_err:
@@ -163,19 +159,20 @@ async def query_rag_system_guards(request: QueryRequest):
         if request.division:
             search_filter = {"division": request.division}
 
-        results = collection.query(
-            query_embeddings=[query_embedding],
+        results = vector_store.query(
+            query_embedding=query_embedding,
             n_results=3,
-            where=search_filter
+            filter_metadata=search_filter
         )
 
-        retrieved_documents = results.get("documents", [[]])[0]
-        retrieved_metadatas = results.get("metadatas", [[]])[0]
-        retrieved_distances = results.get("distances", [[]])[0]
+        retrieved_documents = [r['document'] for r in results]
+        retrieved_metadatas = [r['metadata'] for r in results]
+        retrieved_scores = [r.get('score', 0.0) for r in results]
 
-        # LAYER 3: DISTANCE THRESHOLD GUARDRAIL (Relevance Check)
-        # If vector distance is above 1.2, the database has no matching SOP data
-        if not retrieved_documents or (len(retrieved_distances) > 0 and retrieved_distances[0] > 1.2):
+        # LAYER 3: SCORE THRESHOLD GUARDRAIL (Relevance Check)
+        # Qdrant uses COSINE similarity (0-1, higher = more similar)
+        # If score is below 0.3, the vector store has no matching SOP data
+        if not retrieved_documents or (len(retrieved_scores) > 0 and retrieved_scores[0] < 0.3):
             return {
                 "status": "out_of_scope",
                 "answer": "<b>Factory AI System:</b> Sorry, information about this topic is not covered in the official SOP documents for your division.",
@@ -233,21 +230,21 @@ async def ask_sop(request: QueryRequest):
         # 1. Get vector representation of the question (consistent with EmbeddingService)
         query_vector = EmbeddingService.get_embedding(request.question)
 
-        # 2. Perform retrieval to ChromaDB
-        result = collection.query(query_embeddings=[query_vector], n_results=1)
+        # 2. Perform retrieval to vector store
+        result = vector_store.query(query_embedding=query_vector, n_results=1)
 
-        if not result['documents'] or not result['documents'][0]:
+        if not result or not result[0]['document']:
             raise HTTPException(status_code=404, detail="Relevant Textile SOP not found.")
 
-        best_document = result['documents'][0][0]
-        vector_distance = result['distances'][0][0]
-        THRESHOLD_LIMIT = 260.0
+        best_document = result[0]['document']
+        vector_score = result[0].get('score', 0.0)
+        THRESHOLD_LIMIT = 0.3  # Qdrant COSINE: higher is more similar, below 0.3 = irrelevant
 
-        if vector_distance > THRESHOLD_LIMIT:
+        if vector_score < THRESHOLD_LIMIT:
             return QueryResponse(
                 question=request.question,
                 retrieved_sop="DOCUMENT BELOW SAFETY THRESHOLD",
-                vector_distance=vector_distance,
+                vector_distance=vector_score,
                 ai_answer="Sorry, your question cannot be answered because the topic is outside the scope of the official Factory SOP documents."
             )
 
@@ -257,7 +254,7 @@ async def ask_sop(request: QueryRequest):
         return QueryResponse(
             question=request.question,
             retrieved_sop=best_document,
-            vector_distance=vector_distance,
+            vector_distance=vector_score,
             ai_answer=ai_answer
         )
 
@@ -281,15 +278,15 @@ async def query_rag_system(request: QueryRequest):
         if request.division:
             search_filter = {"division": request.division}
 
-        # 3. Fetch 3 nearest chunks from ChromaDB with metadata
-        results = collection.query(
-            query_embeddings=[query_embedding],
+        # 3. Fetch 3 nearest chunks from vector store with metadata
+        results = vector_store.query(
+            query_embedding=query_embedding,
             n_results=3,
-            where=search_filter
+            filter_metadata=search_filter
         )
 
-        retrieved_documents = results.get("documents", [[]])[0]
-        retrieved_metadatas = results.get("metadatas", [[]])[0]
+        retrieved_documents = [r['document'] for r in results]
+        retrieved_metadatas = [r['metadata'] for r in results]
 
         # 4. CONTEXT STRUCTURING TECHNIQUE (Convert to structured XML format)
         context_blocks = []
@@ -338,7 +335,6 @@ async def ingest_document_file(sop_code: str = Form(...), division: str = Form(.
         file_content = await file.read()
 
         # 2. Extract text (example for clean .txt files)
-        # To support PDF in the future, use 'pypdf' library here
         raw_text = file_content.decode("utf-8")
 
         text_splitter = RecursiveCharacterTextSplitter(
@@ -367,8 +363,8 @@ async def ingest_document_file(sop_code: str = Form(...), division: str = Form(.
             final_ids.append(f"{sop_code}_chunk_{chunk_index}")
         final_embeddings = [EmbeddingService.get_embedding(text) for text in final_documents]
 
-        # 5. Inject directly into ChromaDB in real-time
-        collection.upsert(
+        # 5. Inject directly into vector store in real-time
+        vector_store.upsert(
             ids=final_ids,
             documents=final_documents,
             metadatas=final_metadatas,
@@ -428,22 +424,20 @@ async def ingest_sop_endpoint(file: UploadFile = File(...)):
 @app.post("/api/v1/query", tags=["Core RAG Engine V1"])
 async def query_rag_endpoint(query: str, division: str = None):
     """
-    RAG Endpoint: Search for relevant SOP chunks in ChromaDB (Retrieval),
-    filter by distance threshold, then pass to LLM for answer generation.
+    RAG Endpoint: Search for relevant SOP chunks in vector store (Retrieval),
+    filter by score threshold, then pass to LLM for answer generation.
     """
     try:
         if not query.strip():
             raise HTTPException(status_code=400, detail="Search query cannot be empty.")
 
-        # 1. RETRIEVAL: Fetch data from ChromaDB
+        # 1. RETRIEVAL: Fetch data from vector store
         search_results = search_relevant_documents(query_text=query, division_filter=division)
 
         if "error" in search_results:
             raise HTTPException(status_code=500, detail=search_results["error"])
 
-        # 2. FILTERING: Apply relative distance threshold (pick top 3 closest)
-        # ChromaDB uses L2 distance by default (all-MiniLM-L6-v2, 384-dim).
-        # We pick the top 3 results; they are already sorted by distance ascending.
+        # 2. FILTERING: Apply relative score threshold (pick top 3 closest)
         valid_contexts = search_results[:3]
 
         # 3. GENERATION: Send to LLM if valid context passed the filter
@@ -546,21 +540,8 @@ async def get_task_result(task_id: str):
 @app.get("/api/sops", status_code=status.HTTP_200_OK, tags=["Administrative Engine"])
 async def get_registered_sops_list():
     try:
-        # 1. EXPLICITLY INITIALIZE INSTANCE TO SYNC WITH INGEST_SOP.PY
-        db_path = os.path.join(os.path.dirname(__file__), "chroma_db_storage")
-        chroma_client = chromadb.PersistentClient(path=db_path)
-        embedding_fn = embedding_functions.DefaultEmbeddingFunction()
-
-        # Ensure collection name matches the one in ingest_sop.py
-        target_collection = chroma_client.get_or_create_collection(
-            name="textile_sop_collection",
-            embedding_function=embedding_fn
-        )
-
-        # Fetch data from the correct collection
-        db_content = target_collection.get(include=["metadatas", "documents"])
-        all_metadatas = db_content.get("metadatas", [])
-        all_documents = db_content.get("documents", [])
+        # Fetch all documents from vector store
+        all_ids, all_documents, all_metadatas = vector_store.get_all()
 
         if not all_metadatas:
             return {
@@ -613,7 +594,11 @@ async def get_registered_sops_list():
 
 @app.get("/api/health", tags=["System Utility"])
 async def health_check():
-    return {"status": "healthy"}
+    health_status = health_check_vector_store(vector_store)
+    return {
+        "status": "healthy",
+        "vector_store": health_status
+    }
 
 
 @app.get("/", include_in_schema=False)

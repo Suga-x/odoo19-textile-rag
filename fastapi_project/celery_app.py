@@ -7,7 +7,8 @@ BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 celery_app = Celery(
     "textile_rag_tasks",
     broker=BROKER_URL,
-    backend=BROKER_URL
+    backend=BROKER_URL,
+    include=["tasks"],  # Auto-register tasks from tasks.py
 )
 
 # ====================================================================

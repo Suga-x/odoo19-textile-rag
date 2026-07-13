@@ -1,6 +1,5 @@
 # fastapi_project/tasks.py
 import signal
-import sys
 import time
 import os
 from celery_app import celery_app
@@ -16,29 +15,31 @@ except ImportError:
 # ====================================================================
 # 🛑 GRACEFUL SHUTDOWN — Worker mati bersih saat restart
 # ====================================================================
-# Handler ini menangkap SIGTERM (dikirim Docker saat stop/restart)
-# dan SIGINT (Ctrl+C) agar worker menyelesaikan task aktif sebelum
-# benar-benar berhenti.
+# Celery worker SUDAH memiliki SIGTERM handler internal untuk warm
+# shutdown — yaitu menyelesaikan task aktif sebelum benar-benar mati.
 #
-# Tanpa ini, worker akan di kill paksa — task yang sedang berjalan
-# akan gagal dan masuk retry, menyebabkan delay tidak perlu.
+# Handler di bawah hanya LOGging, tanpa sys.exit(0), karena:
+# - sys.exit(0) raise SystemExit yang MEMBATALKAN warm shutdown Celery
+# - Celery akan handle SIGTERM sendiri (warm shutdown = selesaikan task
+#   aktif, stop accept task baru, lalu exit)
+# - Tidak perlu sys.exit — Celery worker akan exit secara natural
+#   setelah warm shutdown selesai.
 # ====================================================================
 def _handle_shutdown(signum, frame):
     """
     Dipanggil saat container menerima sinyal berhenti (SIGTERM/SIGINT).
     Worker akan:
-    1. Berhenti accept task baru
+    1. Berhenti accept task baru (Celery warm shutdown)
     2. Selesaikan task yang sedang berjalan
-    3. Shutdown graceully dalam warm shutdown mode
+    3. Shutdown gracefully
     """
     print(f"\n[SIGNAL] Received signal {signum}. Initiating graceful shutdown...")
-    print("[SIGNAL] Worker will finish current tasks before exiting.")
-    # Celery worker secara otomatis handle SIGTERM untuk warm shutdown,
-    # tapi kita perlu pastikan sinyal diteruskan dengan benar.
-    sys.exit(0)
+    print("[SIGNAL] Celery will handle warm shutdown (finish current tasks, then exit).")
+    # ⚠️  Tidak perlu sys.exit(0) — Celery sudah handle SIGTERM internal
 
 
 # Daftarkan signal handler
+# Hanya untuk logging — Celery tetap handle SIGTERM untuk warm shutdown
 signal.signal(signal.SIGTERM, _handle_shutdown)
 signal.signal(signal.SIGINT, _handle_shutdown)
 

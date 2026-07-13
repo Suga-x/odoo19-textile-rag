@@ -18,7 +18,8 @@ RUN pip install --no-cache-dir \
     python-multipart==0.0.9 \
     ollama==0.2.1 \
     celery==5.3.6 \
-    redis==5.0.7
+    redis==5.0.7 \
+    qdrant-client==1.9.0
 
 # Salin seluruh kode sumber proyek ke dalam kontainer
 COPY . .

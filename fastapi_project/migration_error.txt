@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "<string>", line 4, in <module>
+  File "/app/scripts/migrate_chroma_to_qdrant.py", line 270
+    global BATCH_SIZE
+    ^^^^^^^^^^^^^^^^^
+SyntaxError: name 'BATCH_SIZE' is used prior to global declaration
